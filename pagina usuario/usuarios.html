@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Mapa del mundo (vista usuario)</title>
+<style>
+  body {
+    margin: 0;
+    font-family: system-ui, sans-serif;
+    background: #222;
+    color: #eee;
+    overflow: hidden;
+  }
+  #topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    background: #333;
+    border-bottom: 1px solid #555;
+    font-size: 13px;
+  }
+  #container {
+    display: flex;
+    height: calc(100vh - 32px);
+  }
+  #canvas-wrapper {
+    position: relative;
+    flex: 1;
+    background: #111;
+    overflow: hidden;
+  }
+  #map-canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+  #sidepanel {
+    width: 260px;
+    background: #2a2a2a;
+    border-left: 1px solid #555;
+    padding: 8px;
+    font-size: 13px;
+  }
+  #sidepanel h3 {
+    margin: 4px 0 6px;
+    font-size: 14px;
+  }
+  label {
+    display: block;
+    margin-top: 6px;
+  }
+  input, select, button {
+    font-size: 13px;
+  }
+  select, input[type="number"] {
+    width: 100%;
+    padding: 2px 3px;
+    margin-top: 3px;
+    background: #333;
+    color: #eee;
+    border: 1px solid #555;
+  }
+  button.full {
+    width: 100%;
+    margin-top: 6px;
+    padding: 4px 6px;
+    background: #444;
+    color: #eee;
+    border: 1px solid #777;
+    cursor: pointer;
+  }
+  .layer-label {
+    font-size: 12px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    border: 1px solid #666;
+    cursor: pointer;
+  }
+  .layer-label.active {
+    background: #555;
+    border-color: #aaa;
+  }
+</style>
+</head>
+<body>
+
+<!-- CARGA DEL ARCHIVO DE GUARDADO -->
+<script src="provincias_save.js"></script>
+
+<div id="topbar">
+  <span><b>Mapa del mundo</b> · Vista usuario</span>
+  <span style="margin-left:auto;font-size:11px;">
+    Rueda: zoom · Arrastrar: mover · Click: info
+  </span>
+</div>
+
+<div id="container">
+  <div id="canvas-wrapper">
+    <canvas id="map-canvas"></canvas>
+  </div>
+
+  <div id="sidepanel">
+    <h3>Filtros</h3>
+
+    <label>
+      Capa a mostrar:
+      <div style="display:flex;gap:4px;margin-top:3px;flex-wrap:wrap;">
+        <span class="layer-label active" data-layer="id">IDs</span>
+        <span class="layer-label" data-layer="fort">Fuertes</span>
+        <span class="layer-label" data-layer="recurso">Recursos</span>
+        <span class="layer-label" data-layer="terreno">Terreno</span>
+        <span class="layer-label" data-layer="rio">Ríos</span>
+      </div>
+    </label>
+
+    <label>
+      Buscar por ID:
+      <input type="number" id="busca-id" min="1">
+    </label>
+
+    <label>
+      Filtrar por recurso:
+      <select id="busca-recurso">
+        <option value="">(cualquiera)</option>
+        <option>grano</option>
+        <option>ganado</option>
+        <option>madera</option>
+        <option>mineral_hierro</option>
+        <option>mineral_cobre</option>
+        <option>oro</option>
+        <option>piedra</option>
+        <option>pesca</option>
+        <option>sal</option>
+        <option>especias</option>
+        <option>frutas</option>
+        <option>hierbas</option>
+        <option>caza</option>
+      </select>
+    </label>
+
+    <label>
+      Filtrar por terreno:
+      <select id="busca-terreno">
+        <option value="">(cualquiera)</option>
+        <option>bosque</option>
+        <option>pradera</option>
+        <option>montaña</option>
+        <option>desierto</option>
+        <option>selva</option>
+      </select>
+    </label>
+
+    <label>
+      ¿Con río?
+      <select id="busca-rio">
+        <option value="">(da igual)</option>
+        <option value="si">Sí</option>
+        <option value="no">No</option>
+      </select>
+    </label>
+
+    <button id="btn-aplicar-filtros" class="full">Aplicar filtros</button>
+
+    <h3 style="margin-top:10px;">Info</h3>
+    <div id="info-viewer" style="font-size:11px;color:#ccc;">
+      Click en el mapa para ver la provincia más cercana.
+    </div>
+  </div>
+</div>
+
+<script>
+  // ========= Datos =========
+  const provincias = (window.PROVINCIAS_DATA || []).slice(); // copia
+
+  let capaViewer = "id";
+  let highlightIds = new Set();
+
+  // ========= Iconos =========
+  const resourceIcons = {};
+  const terrainIcons = {};
+
+  const fortIcon = new Image();
+  fortIcon.src = "icons/fort.png";
+  fortIcon.onload = () => draw();
+
+  const riverOnIcon = new Image();
+  riverOnIcon.src = "icons/river_on.png";
+  riverOnIcon.onload = () => draw();
+
+  const riverOffIcon = new Image();
+  riverOffIcon.src = "icons/river_off.png";
+  riverOffIcon.onload = () => draw();
+
+  function getResourceIcon(name) {
+    if (!name) return null;
+    if (resourceIcons[name]) return resourceIcons[name];
+    const img = new Image();
+    img.src = "icons/resources/" + name + ".png";
+    img.onload = () => draw();
+    resourceIcons[name] = img;
+    return img;
+  }
+
+  function getTerrainIcon(name) {
+    if (!name) return null;
+    if (terrainIcons[name]) return terrainIcons[name];
+    const img = new Image();
+    img.src = "icons/terrain/" + name + ".png";
+    img.onload = () => draw();
+    terrainIcons[name] = img;
+    return img;
+  }
+
+  // ========= DOM =========
+  const infoViewer = document.getElementById("info-viewer");
+
+  const layerLabels = document.querySelectorAll(".layer-label");
+  layerLabels.forEach(lbl => {
+    lbl.addEventListener("click", () => {
+      layerLabels.forEach(l => l.classList.remove("active"));
+      lbl.classList.add("active");
+      capaViewer = lbl.dataset.layer;
+      draw();
+    });
+  });
+
+  document.getElementById("btn-aplicar-filtros").onclick = () => {
+    const idVal = document.getElementById("busca-id").value;
+    const recVal = document.getElementById("busca-recurso").value;
+    const terVal = document.getElementById("busca-terreno").value;
+    const rioVal = document.getElementById("busca-rio").value;
+
+    let resultados = provincias;
+
+    if (idVal) {
+      const n = parseInt(idVal,10);
+      resultados = resultados.filter(p => p.id === n);
+    }
+    if (recVal) {
+      resultados = resultados.filter(p => (p.recurso || "") === recVal);
+    }
+    if (terVal) {
+      resultados = resultados.filter(p => (p.terreno || "") === terVal);
+    }
+    if (rioVal === "si") {
+      resultados = resultados.filter(p => p.rio);
+    } else if (rioVal === "no") {
+      resultados = resultados.filter(p => !p.rio);
+    }
+
+    infoViewer.textContent =
+      `Resultados: ${resultados.length} provincias. Se resaltan en amarillo.`;
+
+    highlightIds = new Set(resultados.map(p => p.id));
+    draw();
+  };
+
+  // ========= Canvas, zoom, pan =========
+  const canvas = document.getElementById("map-canvas");
+  const ctx = canvas.getContext("2d");
+  const wrapper = document.getElementById("canvas-wrapper");
+
+  const img = new Image();
+  img.src = "mapa.png";
+
+  let scale = 1;
+  let offsetX = 0;
+  let offsetY = 0;
+  let isPanning = false;
+  let lastPanX = 0;
+  let lastPanY = 0;
+
+  img.onload = () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+
+    const scaleX = wrapper.clientWidth / img.width;
+    const scaleY = wrapper.clientHeight / img.height;
+    scale = Math.min(scaleX, scaleY);
+
+    offsetX = (wrapper.clientWidth - img.width * scale) / 2;
+    offsetY = (wrapper.clientHeight - img.height * scale) / 2;
+
+    draw();
+  };
+
+  function setTransform() {
+    ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+  }
+
+  function screenToWorld(sx, sy) {
+    return {
+      x: (sx - offsetX) / scale,
+      y: (sy - offsetY) / scale
+    };
+  }
+
+  wrapper.addEventListener("click", (e) => {
+    if (isPanning) return;
+    const rect = wrapper.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+    const {x, y} = screenToWorld(sx, sy);
+
+    handleViewerClick(x, y);
+  });
+
+  wrapper.addEventListener("wheel", (e) => {
+    e.preventDefault();
+    const rect = wrapper.getBoundingClientRect();
+    const sx = e.clientX - rect.left;
+    const sy = e.clientY - rect.top;
+
+    const antes = screenToWorld(sx, sy);
+    const factor = e.deltaY < 0 ? 1.1 : 0.9;
+    scale *= factor;
+    const despues = screenToWorld(sx, sy);
+
+    offsetX += (despues.x - antes.x) * scale;
+    offsetY += (despues.y - antes.y) * scale;
+
+    draw();
+  }, {passive:false});
+
+  wrapper.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    isPanning = true;
+    lastPanX = e.clientX;
+    lastPanY = e.clientY;
+  });
+  window.addEventListener("mousemove", (e) => {
+    if (!isPanning) return;
+    const dx = e.clientX - lastPanX;
+    const dy = e.clientY - lastPanY;
+    lastPanX = e.clientX;
+    lastPanY = e.clientY;
+    offsetX += dx;
+    offsetY += dy;
+    draw();
+  });
+  window.addEventListener("mouseup", () => { isPanning = false; });
+
+  // ========= Funciones viewer =========
+
+  function findNearestProvince(x, y, maxDist) {
+    let best = -1;
+    let bestD2 = maxDist * maxDist;
+    for (let i = 0; i < provincias.length; i++) {
+      const dx = provincias[i].x - x;
+      const dy = provincias[i].y - y;
+      const d2 = dx*dx + dy*dy;
+      if (d2 <= bestD2) {
+        bestD2 = d2;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  function handleViewerClick(x, y) {
+    const idx = findNearestProvince(x, y, 20);
+    if (idx < 0) {
+      infoViewer.textContent = "No hay provincia cercana.";
+      return;
+    }
+    const p = provincias[idx];
+    infoViewer.textContent =
+      `Prov ${p.id} | F:${p.fort} | R:${p.recurso || "-"} | T:${p.terreno || "-"} | Río:${p.rio ? "Sí" : "No"}`;
+  }
+
+  // ========= Dibujar =========
+  function draw() {
+    if (!img.complete) return;
+
+    ctx.setTransform(1,0,0,1,0,0);
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+
+    setTransform();
+    ctx.drawImage(img, 0, 0);
+
+    const size = 18;
+
+    provincias.forEach((p) => {
+      const x = p.x;
+      const y = p.y;
+
+      let show = false;
+      let label = "";
+      let squareColor = "#222";
+      let textColor = "#0f0";
+      let icon = null;
+
+      if (capaViewer === "id") {
+        show = true;
+        label = String(p.id);
+        squareColor = "#222";
+        textColor = "#0f0";
+      } else if (capaViewer === "fort" && p.fort && p.fort > 0) {
+        show = true;
+        label = String(p.fort);
+        squareColor = "#444";
+        textColor = "#fff";
+        if (fortIcon.complete && fortIcon.naturalWidth) icon = fortIcon;
+      } else if (capaViewer === "recurso" && p.recurso) {
+        show = true;
+        label = p.recurso.substring(0,3);
+        squareColor = "#004c6a";
+        textColor = "#fff";
+        const resIcon = getResourceIcon(p.recurso);
+        if (resIcon && resIcon.complete && resIcon.naturalWidth) icon = resIcon;
+      } else if (capaViewer === "terreno" && p.terreno) {
+        show = true;
+        label = p.terreno.substring(0,3);
+        squareColor = "#5a1c7b";
+        textColor = "#fff";
+        const terIcon = getTerrainIcon(p.terreno);
+        if (terIcon && terIcon.complete && terIcon.naturalWidth) icon = terIcon;
+      } else if (capaViewer === "rio") {
+        show = true;
+        label = p.rio ? "RI" : "";
+        squareColor = "#004";
+        textColor = "#fff";
+        const rioIcon = p.rio ? riverOnIcon : riverOffIcon;
+        if (rioIcon.complete && rioIcon.naturalWidth) icon = rioIcon;
+      }
+
+      if (!show) return;
+
+      let borderColor = "#fff";
+      if (highlightIds.has(p.id)) borderColor = "#ff0";
+
+      // cuadro + icono (escalan con zoom)
+      ctx.fillStyle = squareColor;
+      ctx.strokeStyle = borderColor;
+      ctx.lineWidth = 1 / scale;
+      ctx.fillRect(x - size/2, y - size/2, size, size);
+      ctx.strokeRect(x - size/2, y - size/2, size, size);
+      if (icon) {
+        ctx.drawImage(icon, x - size/2 + 1, y - size/2 + 1, size-2, size-2);
+      }
+
+      // texto independiente del zoom
+      const sx = x * scale + offsetX;
+      const sy = y * scale + offsetY;
+
+      ctx.setTransform(1,0,0,1,0,0);
+      if (label) {
+        ctx.fillStyle = textColor;
+        ctx.font = "14px monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(label, sx, sy);
+      }
+      setTransform();
+    });
+  }
+
+  // debug opcional
+  window._provincias = provincias;
+</script>
+</body>
+</html>
