@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <title>Mapa del mundo (vista usuario)</title>
 <style>
+  
   body {
     margin: 0;
     font-family: system-ui, sans-serif;
@@ -86,7 +87,13 @@
 <body>
 
 <!-- CARGA DEL ARCHIVO DE GUARDADO -->
-<script src="provincias_save.js"></script>
+<script>
+  const cacheBuster = new Date().getTime();
+  document.write(
+    `<script src="provincias_save.js?v=${cacheBuster}"></` + `script>`
+  );
+</script>
+
 
 <div id="topbar">
   <span><b>Mapa del mundo</b> · Vista usuario</span>
