@@ -263,6 +263,17 @@
     draw();
   };
 
+  // ====== Buscar por ID y centrar con Enter ======
+  const buscaIdInput = document.getElementById("busca-id");
+  if (buscaIdInput) {
+    buscaIdInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        goToProvinceById(buscaIdInput.value);
+      }
+    });
+  }
+
   // ========= Canvas, zoom, pan =========
   const canvas = document.getElementById("map-canvas");
   const ctx = canvas.getContext("2d");
@@ -376,6 +387,35 @@
       `Prov ${p.id} | F:${p.fort} | R:${p.recurso || "-"} | T:${p.terreno || "-"} | Río:${p.rio ? "Sí" : "No"}`;
   }
 
+  // === NUEVO: centrar cámara en provincia ===
+  function centerCameraOnProvince(p, zoom = 1.8) {
+    // zoom suave
+    scale = zoom;
+
+    const w = wrapper.clientWidth;
+    const h = wrapper.clientHeight;
+
+    offsetX = w / 2 - p.x * scale;
+    offsetY = h / 2 - p.y * scale;
+
+    highlightIds = new Set([p.id]); // resaltar solo esa
+    draw();
+  }
+
+  function goToProvinceById(idStr) {
+    const n = parseInt(idStr, 10);
+    if (isNaN(n)) return;
+
+    const p = provincias.find(p => p.id === n);
+    if (!p) {
+      infoViewer.textContent = `No se encontró la provincia ${n}.`;
+      return;
+    }
+
+    centerCameraOnProvince(p, 1.8);
+    infoViewer.textContent = `Centrado en provincia ${p.id}.`;
+  }
+
   // ========= Dibujar =========
   function draw() {
     if (!img.complete) return;
@@ -437,7 +477,6 @@
       let borderColor = "#fff";
       if (highlightIds.has(p.id)) borderColor = "#ff0";
 
-      // cuadro + icono (escalan con zoom)
       ctx.fillStyle = squareColor;
       ctx.strokeStyle = borderColor;
       ctx.lineWidth = 1 / scale;
@@ -447,7 +486,6 @@
         ctx.drawImage(icon, x - size/2 + 1, y - size/2 + 1, size-2, size-2);
       }
 
-      // texto independiente del zoom
       const sx = x * scale + offsetX;
       const sy = y * scale + offsetY;
 
